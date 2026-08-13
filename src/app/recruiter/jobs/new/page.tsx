@@ -97,12 +97,18 @@ export default function NewJobPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <Button variant="ghost" size="sm" asChild className="mb-4 -ml-2">
-          <Link href="/recruiter/jobs">
-            <ArrowLeft className="h-4 w-4" /> Back to Jobs
-          </Link>
-        </Button>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Create Job</h1>
+        <Link
+          href="/recruiter/jobs"
+          className="mb-4 -ml-2 inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Jobs
+        </Link>
+  
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+          Create Job
+        </h1>
+  
         <p className="text-muted-foreground mt-1">
           Post a new role and start receiving AI-ranked applications
         </p>
