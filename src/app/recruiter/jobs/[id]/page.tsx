@@ -39,7 +39,7 @@ interface ApplicantRow {
     headline: string | null;
     current_title: string | null;
     years_of_experience: number | null;
-  } | null;
+  }[] | null;
   role_fit_scores: {
     overall_score: number;
     semantic_match: number | null;
@@ -61,7 +61,7 @@ const STATUS_OPTIONS: ApplicationStatus[] = [
 ];
 
 function getCandidateName(applicant: ApplicantRow) {
-  const cp = applicant.candidate_profiles;
+  const cp = applicant.candidate_profiles?.[0];
   return cp?.headline || cp?.current_title || `Candidate ${applicant.candidate_id.slice(0, 8)}`;
 }
 
@@ -301,8 +301,8 @@ export default function JobDetailPage() {
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Applied {formatDate(applicant.applied_at)}
-                            {applicant.candidate_profiles?.years_of_experience != null &&
-                              ` · ${applicant.candidate_profiles.years_of_experience} yrs exp`}
+                            {applicant.candidate_profiles?.[0]?.years_of_experience != null &&
+                              ` · ${applicant.candidate_profiles[0].years_of_experience} yrs exp`}
                           </p>
                         </div>
                       </div>
