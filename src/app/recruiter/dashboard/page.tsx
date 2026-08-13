@@ -188,7 +188,7 @@ export default async function RecruiterDashboardPage() {
                   >
                     <div>
                       <p className="font-medium text-sm">
-                        {(app.jobs as { title: string } | null)?.title || "Unknown job"}
+                        {(app.jobs as { title: string }[] | null)?.[0]?.title || "Unknown job"}
                       </p>
                       <p className="text-xs text-muted-foreground">{formatDate(app.applied_at)}</p>
                     </div>
