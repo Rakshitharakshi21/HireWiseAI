@@ -373,7 +373,8 @@ function createBot(): Bot<BotContext> {
     }
 
     const lines = applications.map((app) => {
-      const job = app.jobs as { title: string; company: string } | null;
+      const job =
+  (app.jobs as { title: string; company: string }[] | null)?.[0] ?? null;
       const fit = Array.isArray(app.role_fit_scores)
         ? app.role_fit_scores[0]
         : app.role_fit_scores;
