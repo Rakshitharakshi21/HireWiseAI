@@ -31,7 +31,13 @@ async function getDashboardData() {
   const jobIds = (jobs || []).map((j) => j.id);
   const activeJobs = (jobs || []).filter((j) => j.status === "published").length;
 
-  let applications: { id: string; status: ApplicationStatus; applied_at: string; job_id: string; jobs: { title: string } | null }[] = [];
+  let applications: {
+  id: string;
+  status: ApplicationStatus;
+  applied_at: string;
+  job_id: string;
+  jobs: { title: string }[];
+  }[] = [];
 
   if (jobIds.length > 0) {
     const { data } = await supabase
