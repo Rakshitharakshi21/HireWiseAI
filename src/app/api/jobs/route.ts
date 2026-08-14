@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const jobSchema = z.object({
   title: z.string().min(1),
-  company: z.string().optional(),
+  company: z.string().min(1),
   description: z.string().min(10),
   required_skills: z.array(z.string()).default([]),
   preferred_skills: z.array(z.string()).default([]),
@@ -12,9 +12,7 @@ const jobSchema = z.object({
   experience_max: z.number().nullable().optional(),
   education_requirement: z.string().nullable().optional(),
   location: z.string().nullable().optional(),
-  employment_type: z
-    .enum(["full_time", "part_time", "contract", "internship", "remote"])
-    .default("full_time"),
+  employment_type: z.enum(["full_time", "part_time", "contract", "internship", "remote"]).default("full_time"),
   salary_min: z.number().nullable().optional(),
   salary_max: z.number().nullable().optional(),
   deadline: z.string().nullable().optional(),
