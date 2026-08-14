@@ -151,57 +151,60 @@ export async function POST(request: NextRequest) {
       });
     }
 
-  /*
- * =========================================================
- * 6. GET CANDIDATE RESUME
- * =========================================================
- */
+    /*
+     * =========================================================
+     * 6. GET CANDIDATE RESUME
+     * =========================================================
+     *
+     * Your current resumes table uses:
+     *
+     * candidate_id
+     * parsed
+     * parsed_successfully
+     *
+     * We therefore don't use is_primary or raw_text here.
+     * =========================================================
+     */
 
-const {
-  data: resumes,
-  error: resumeError,
-} = await supabase
-  .from("resumes")
-  .select("*")
-  .eq("candidate_id", candidate.id);
+    const {
+      data: resume,
+      error: resumeError,
+    } = await supabase
+      .from("resumes")
+      .select("*")
+      .eq("candidate_id", candidate.id)
+      .eq("parsed_successfully", true)
+      .order("created_at", {
+        ascending: false,
+      })
+      .limit(1)
+      .maybeSingle();
 
-if (resumeError) {
-  console.error("Resume lookup error:", resumeError);
+    if (resumeError) {
+      console.error(
+        "Resume lookup error:",
+        resumeError
+      );
 
-  return NextResponse.json(
-    {
-      error: "Failed to load candidate resume",
-      details: resumeError.message,
-    },
-    { status: 500 }
-  );
-}
+      return NextResponse.json(
+        {
+          error:
+            "Failed to load candidate resume",
+        },
+        { status: 500 }
+      );
+    }
 
-if (!resumes || resumes.length === 0) {
-  return NextResponse.json(
-    {
-      error: "No resume found for this candidate",
-    },
-    { status: 400 }
-  );
-}
+    if (!resume) {
+      return NextResponse.json(
+        {
+          error:
+            "Upload and successfully parse your resume first to calculate role fit",
+        },
+        { status: 400 }
+      );
+    }
 
-/*
- * Use the most recently available resume.
- * Prefer successfully parsed resumes when that field exists.
- */
-
-const resume =
-  resumes.find(
-    (item) => item.parsed_successfully === true
-  ) || resumes[0];
-
-console.log("Role-fit resume selected:", {
-  id: resume.id,
-  candidate_id: resume.candidate_id,
-  file_name: resume.file_name,
-  parsed_successfully: resume.parsed_successfully,
-});
     /*
      * =========================================================
      * 7. GET PARSED RESUME DATA
