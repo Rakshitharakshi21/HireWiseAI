@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
 try {
-  const roleFitUrl = `${request.nextUrl.origin}/api/role-fit`;
+  const roleFitUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/role-fit`;
 
   const roleFitResponse = await fetch(roleFitUrl, {
     method: "POST",
@@ -94,23 +94,14 @@ try {
 
   if (!roleFitResponse.ok) {
     const errorText = await roleFitResponse.text();
-
-    console.error(
-      "Role-fit calculation failed:",
-      roleFitResponse.status,
-      errorText
-    );
+    console.error("Role-fit calculation failed:", errorText);
   } else {
-    console.log(
-      "Role-fit calculation completed successfully"
-    );
+    console.log("Role-fit calculation completed successfully");
   }
 } catch (roleFitError) {
-  console.error(
-    "Role-fit request failed:",
-    roleFitError
-  );
+  console.error("Role-fit request failed:", roleFitError);
 }
+
     return NextResponse.json({ application });
   } catch (error) {
     console.error("Application error:", error);
