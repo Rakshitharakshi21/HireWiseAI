@@ -45,34 +45,77 @@ import type {
   RoleFitExplanation,
 } from "@/types";
 
+/*
+ * =========================================================
+ * SUPABASE RESULT TYPES
+ * =========================================================
+ */
+
+interface CandidateProfileResult {
+  user_id: string;
+  headline: string | null;
+  current_title: string | null;
+  years_of_experience: number | null;
+}
+
+interface RoleFitScoreResult {
+  overall_score: number;
+  semantic_match: number | null;
+  skills_match: number | null;
+  experience_match: number | null;
+  project_relevance: number | null;
+  education_match: number | null;
+  role_fit_explanations:
+    | RoleFitExplanation
+    | RoleFitExplanation[]
+    | null;
+}
+
+interface ApplicationQueryResult {
+  id: string;
+  status: ApplicationStatus;
+  applied_at: string;
+  candidate_id: string;
+
+  candidate_profiles:
+    | CandidateProfileResult
+    | CandidateProfileResult[]
+    | null;
+
+  role_fit_scores:
+    | RoleFitScoreResult
+    | RoleFitScoreResult[]
+    | null;
+}
+
+/*
+ * =========================================================
+ * APPLICANT TYPE USED BY THE UI
+ * =========================================================
+ */
+
 interface ApplicantRow {
   id: string;
   status: ApplicationStatus;
   applied_at: string;
   candidate_id: string;
 
-  candidate_profiles: {
-    user_id: string;
-    headline: string | null;
-    current_title: string | null;
-    years_of_experience: number | null;
-  }[] | null;
+  candidate_profiles:
+    | CandidateProfileResult[]
+    | null;
 
   candidate_name?: string | null;
 
-  role_fit_scores: {
-    overall_score: number;
-    semantic_match: number | null;
-    skills_match: number | null;
-    experience_match: number | null;
-    project_relevance: number | null;
-    education_match: number | null;
-    role_fit_explanations:
-      | RoleFitExplanation
-      | RoleFitExplanation[]
-      | null;
-  }[] | null;
+  role_fit_scores:
+    | RoleFitScoreResult[]
+    | null;
 }
+
+/*
+ * =========================================================
+ * STATUS OPTIONS
+ * =========================================================
+ */
 
 const STATUS_OPTIONS: ApplicationStatus[] = [
   "applied",
@@ -82,6 +125,12 @@ const STATUS_OPTIONS: ApplicationStatus[] = [
   "rejected",
   "selected",
 ];
+
+/*
+ * =========================================================
+ * HELPERS
+ * =========================================================
+ */
 
 function getCandidateName(applicant: ApplicantRow) {
   const candidate = applicant.candidate_profiles?.[0];
@@ -110,6 +159,12 @@ function getExplanation(
   return Array.isArray(exp) ? exp[0] : exp;
 }
 
+/*
+ * =========================================================
+ * PAGE
+ * =========================================================
+ */
+
 export default function JobDetailPage() {
   const params = useParams();
 
@@ -123,9 +178,11 @@ export default function JobDetailPage() {
 
   const [loading, setLoading] = useState(true);
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] =
+    useState<string | null>(null);
 
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] =
+    useState<string | null>(null);
 
   /*
    * =========================================================
@@ -155,7 +212,10 @@ export default function JobDetailPage() {
         .single();
 
       if (jobError || !jobData) {
-        console.error("Failed to load job:", jobError);
+        console.error(
+          "Failed to load job:",
+          jobError
+        );
 
         setJob(null);
         setApplicants([]);
@@ -169,19 +229,6 @@ export default function JobDetailPage() {
       /*
        * -------------------------------------------------------
        * 2. LOAD APPLICATIONS
-       * -------------------------------------------------------
-       *
-       * applications
-       *      ↓
-       * candidate_profiles
-       *      ↓
-       * user_id
-       *
-       * We DO NOT directly join profiles here.
-       *
-       * candidate_profiles.user_id → profiles.id
-       *
-       * So we load the profiles separately below.
        * -------------------------------------------------------
        */
 
@@ -222,7 +269,9 @@ export default function JobDetailPage() {
           )
         `)
         .eq("job_id", jobId)
-        .order("applied_at", { ascending: false });
+        .order("applied_at", {
+          ascending: false,
+        });
 
       if (appsError) {
         console.error(
@@ -238,27 +287,41 @@ export default function JobDetailPage() {
 
       /*
        * -------------------------------------------------------
-       * 3. GET USER IDS FROM CANDIDATE PROFILES
+       * 3. NORMALIZE SUPABASE APPLICATION RESULTS
        * -------------------------------------------------------
        */
 
-      const candidateUserIds = (apps || [])
-        .map((app: any) => {
-          const candidateProfile =
-            Array.isArray(app.candidate_profiles)
-              ? app.candidate_profiles[0]
-              : app.candidate_profiles;
-
-          return candidateProfile?.user_id;
-        })
-        .filter(
-          (id: string | undefined): id is string =>
-            Boolean(id)
-        );
+      const applicationResults =
+        (apps ?? []) as unknown as ApplicationQueryResult[];
 
       /*
        * -------------------------------------------------------
-       * 4. LOAD NAMES FROM profiles
+       * 4. GET USER IDS
+       * -------------------------------------------------------
+       */
+
+      const candidateUserIds =
+        applicationResults
+          .map((app) => {
+            const candidateProfile =
+              Array.isArray(
+                app.candidate_profiles
+              )
+                ? app.candidate_profiles[0]
+                : app.candidate_profiles;
+
+            return candidateProfile?.user_id;
+          })
+          .filter(
+            (
+              id
+            ): id is string =>
+              Boolean(id)
+          );
+
+      /*
+       * -------------------------------------------------------
+       * 5. LOAD NAMES FROM PROFILES
        * -------------------------------------------------------
        */
 
@@ -273,8 +336,13 @@ export default function JobDetailPage() {
           error: profileError,
         } = await supabase
           .from("profiles")
-          .select("id, full_name")
-          .in("id", candidateUserIds);
+          .select(
+            "id, full_name"
+          )
+          .in(
+            "id",
+            candidateUserIds
+          );
 
         if (profileError) {
           console.error(
@@ -282,82 +350,112 @@ export default function JobDetailPage() {
             profileError
           );
         } else {
-          profiles = profileData || [];
+          profiles =
+            profileData || [];
         }
       }
 
       /*
        * -------------------------------------------------------
-       * 5. CREATE USER ID → FULL NAME MAP
+       * 6. CREATE USER ID → NAME MAP
        * -------------------------------------------------------
        */
 
-      const profileMap = new Map<
-        string,
-        string | null
-      >();
+      const profileMap =
+        new Map<
+          string,
+          string | null
+        >();
 
-      profiles.forEach((profile) => {
-        profileMap.set(
-          profile.id,
-          profile.full_name
+      profiles.forEach(
+        (profile) => {
+          profileMap.set(
+            profile.id,
+            profile.full_name
+          );
+        }
+      );
+
+      /*
+       * -------------------------------------------------------
+       * 7. ATTACH CANDIDATE NAME
+       * -------------------------------------------------------
+       */
+
+      const applicantsWithNames: ApplicantRow[] =
+        applicationResults.map(
+          (app) => {
+            const candidateProfile =
+              Array.isArray(
+                app.candidate_profiles
+              )
+                ? app.candidate_profiles[0]
+                : app.candidate_profiles;
+
+            const userId =
+              candidateProfile?.user_id;
+
+            const candidateName =
+              userId
+                ? profileMap.get(
+                    userId
+                  ) || null
+                : null;
+
+            const normalizedCandidateProfiles =
+              candidateProfile
+                ? [candidateProfile]
+                : null;
+
+            const normalizedRoleFitScores =
+              Array.isArray(
+                app.role_fit_scores
+              )
+                ? app.role_fit_scores
+                : app.role_fit_scores
+                  ? [app.role_fit_scores]
+                  : null;
+
+            return {
+              id: app.id,
+              status: app.status,
+              applied_at:
+                app.applied_at,
+              candidate_id:
+                app.candidate_id,
+              candidate_profiles:
+                normalizedCandidateProfiles,
+              candidate_name:
+                candidateName,
+              role_fit_scores:
+                normalizedRoleFitScores,
+            };
+          }
         );
-      });
 
       /*
        * -------------------------------------------------------
-       * 6. ATTACH CANDIDATE NAME
-       * -------------------------------------------------------
-       */
-
-      const applicantsWithNames: ApplicantRow[] = (
-        apps || []
-      ).map((app: any) => {
-        const candidateProfile = Array.isArray(
-          app.candidate_profiles
-        )
-          ? app.candidate_profiles[0]
-          : app.candidate_profiles;
-
-        const userId =
-          candidateProfile?.user_id;
-
-        const candidateName = userId
-          ? profileMap.get(userId) || null
-          : null;
-
-        return {
-          ...app,
-          candidate_name: candidateName,
-        };
-      });
-
-      /*
-       * -------------------------------------------------------
-       * 7. SORT BY AI ROLE-FIT SCORE
-       * -------------------------------------------------------
-       *
-       * Highest score first.
-       *
-       * Applicants without a score appear last.
+       * 8. SORT BY AI ROLE-FIT SCORE
        * -------------------------------------------------------
        */
 
       const sorted =
-        applicantsWithNames.sort((a, b) => {
-          const scoreA =
-            a.role_fit_scores?.[0]
-              ?.overall_score ?? -1;
+        applicantsWithNames.sort(
+          (a, b) => {
+            const scoreA =
+              a.role_fit_scores?.[0]
+                ?.overall_score ?? -1;
 
-          const scoreB =
-            b.role_fit_scores?.[0]
-              ?.overall_score ?? -1;
+            const scoreB =
+              b.role_fit_scores?.[0]
+                ?.overall_score ?? -1;
 
-          return (
-            Number(scoreB) -
-            Number(scoreA)
-          );
-        });
+            return (
+              Number(scoreB) -
+              Number(scoreA)
+            );
+          }
+        );
 
       setApplicants(sorted);
     } catch (error) {
@@ -394,7 +492,8 @@ export default function JobDetailPage() {
         {
           method: "PATCH",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
           body: JSON.stringify({
             applicationId,
@@ -410,18 +509,21 @@ export default function JobDetailPage() {
       }
 
       setApplicants((prev) =>
-        prev.map((applicant) =>
-          applicant.id === applicationId
-            ? {
-                ...applicant,
-                status,
-              }
-            : applicant
+        prev.map(
+          (applicant) =>
+            applicant.id ===
+            applicationId
+              ? {
+                  ...applicant,
+                  status,
+                }
+              : applicant
         )
       );
 
       toast({
-        title: "Status updated",
+        title:
+          "Status updated",
         variant: "success",
       });
     } catch (error) {
@@ -430,7 +532,8 @@ export default function JobDetailPage() {
       toast({
         title:
           "Failed to update status",
-        variant: "destructive",
+        variant:
+          "destructive",
       });
     } finally {
       setUpdatingId(null);
@@ -451,14 +554,14 @@ export default function JobDetailPage() {
         <Skeleton className="h-32 w-full rounded-xl" />
 
         <div className="space-y-4">
-          {Array.from({ length: 3 }).map(
-            (_, i) => (
-              <Skeleton
-                key={i}
-                className="h-24 w-full rounded-xl"
-              />
-            )
-          )}
+          {Array.from({
+            length: 3,
+          }).map((_, i) => (
+            <Skeleton
+              key={i}
+              className="h-24 w-full rounded-xl"
+            />
+          ))}
         </div>
       </div>
     );
@@ -519,14 +622,20 @@ export default function JobDetailPage() {
 
           <Badge
             variant={
-              job.status === "published"
+              job.status ===
+              "published"
                 ? "success"
-                : job.status === "closed"
+                : job.status ===
+                    "closed"
                   ? "warning"
                   : "secondary"
             }
           >
-            {JOB_STATUS_LABELS[job.status]}
+            {
+              JOB_STATUS_LABELS[
+                job.status
+              ]
+            }
           </Badge>
         </div>
 
@@ -601,7 +710,9 @@ export default function JobDetailPage() {
             {job.deadline && (
               <span>
                 Deadline:{" "}
-                {formatDate(job.deadline)}
+                {formatDate(
+                  job.deadline
+                )}
               </span>
             )}
           </div>
@@ -649,7 +760,8 @@ export default function JobDetailPage() {
 
         </div>
 
-        {applicants.length === 0 ? (
+        {applicants.length ===
+        0 ? (
           <Card>
             <CardContent>
               <EmptyState
@@ -665,10 +777,13 @@ export default function JobDetailPage() {
           <div className="space-y-4">
 
             {applicants.map(
-              (applicant, index) => {
-
+              (
+                applicant,
+                index
+              ) => {
                 const score =
-                  applicant.role_fit_scores?.[0];
+                  applicant
+                    .role_fit_scores?.[0];
 
                 const explanation =
                   getExplanation(
@@ -681,7 +796,9 @@ export default function JobDetailPage() {
 
                 return (
                   <Card
-                    key={applicant.id}
+                    key={
+                      applicant.id
+                    }
                     className="overflow-hidden"
                   >
                     <CardContent className="p-0">
@@ -747,20 +864,29 @@ export default function JobDetailPage() {
                               updatingId ===
                               applicant.id
                             }
-                            onChange={(e) =>
+                            onChange={(
+                              e
+                            ) =>
                               updateStatus(
                                 applicant.id,
-                                e.target
+                                e
+                                  .target
                                   .value as ApplicationStatus
                               )
                             }
                             className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             {STATUS_OPTIONS.map(
-                              (status) => (
+                              (
+                                status
+                              ) => (
                                 <option
-                                  key={status}
-                                  value={status}
+                                  key={
+                                    status
+                                  }
+                                  value={
+                                    status
+                                  }
                                 >
                                   {
                                     APPLICATION_STATUS_LABELS[
