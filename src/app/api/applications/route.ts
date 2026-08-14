@@ -77,30 +77,11 @@ export async function POST(request: NextRequest) {
       await notifyNewApplication(recruiterUserId, profile?.full_name || "A candidate", job.title);
     }
 
-try {
-  const roleFitUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/role-fit`;
-
-  const roleFitResponse = await fetch(roleFitUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: request.headers.get("cookie") || "",
-    },
-    body: JSON.stringify({
-      jobId,
-      applicationId: application.id,
-    }),
-  });
-
-  if (!roleFitResponse.ok) {
-    const errorText = await roleFitResponse.text();
-    console.error("Role-fit calculation failed:", errorText);
-  } else {
-    console.log("Role-fit calculation completed successfully");
-  }
-} catch (roleFitError) {
-  console.error("Role-fit request failed:", roleFitError);
-}
+    fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/role-fit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: request.headers.get("cookie") || "" },
+      body: JSON.stringify({ jobId }),
+    }).catch(console.error);
 
     return NextResponse.json({ application });
   } catch (error) {
