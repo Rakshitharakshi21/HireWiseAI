@@ -51,14 +51,14 @@ interface ApplicantRow {
   applied_at: string;
   candidate_id: string;
 
+  candidate_name: string | null;
+
   candidate_profiles: {
     user_id: string;
     headline: string | null;
     current_title: string | null;
     years_of_experience: number | null;
   }[] | null;
-
-  candidate_name?: string | null;
 
   role_fit_scores: {
     overall_score: number;
@@ -84,12 +84,12 @@ const STATUS_OPTIONS: ApplicationStatus[] = [
 ];
 
 function getCandidateName(applicant: ApplicantRow) {
-  const candidate = applicant.candidate_profiles?.[0];
+  const cp = applicant.candidate_profiles?.[0];
 
   return (
     applicant.candidate_name ||
-    candidate?.headline ||
-    candidate?.current_title ||
+    cp?.headline ||
+    cp?.current_title ||
     `Candidate ${applicant.candidate_id.slice(0, 8)}`
   );
 }
@@ -97,15 +97,11 @@ function getCandidateName(applicant: ApplicantRow) {
 function getExplanation(
   scores: ApplicantRow["role_fit_scores"]
 ): RoleFitExplanation | null {
-  if (!scores?.length) {
-    return null;
-  }
+  if (!scores?.length) return null;
 
   const exp = scores[0].role_fit_explanations;
 
-  if (!exp) {
-    return null;
-  }
+  if (!exp) return null;
 
   return Array.isArray(exp) ? exp[0] : exp;
 }
@@ -127,249 +123,202 @@ export default function JobDetailPage() {
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  /*
-   * =========================================================
-   * LOAD JOB + APPLICANTS
-   * =========================================================
-   */
-
   const loadData = useCallback(async () => {
     const supabase = createClient();
 
     setLoading(true);
 
-    try {
-      /*
-       * -------------------------------------------------------
-       * 1. LOAD JOB
-       * -------------------------------------------------------
-       */
+    /*
+     * ---------------------------------------------------------
+     * 1. LOAD JOB
+     * ---------------------------------------------------------
+     */
 
-      const {
-        data: jobData,
-        error: jobError,
-      } = await supabase
-        .from("jobs")
-        .select("*")
-        .eq("id", jobId)
-        .single();
+    const { data: jobData, error: jobError } = await supabase
+      .from("jobs")
+      .select("*")
+      .eq("id", jobId)
+      .single();
 
-      if (jobError || !jobData) {
-        console.error("Failed to load job:", jobError);
+    if (jobError || !jobData) {
+      console.error("Failed to load job:", jobError);
 
-        setJob(null);
-        setApplicants([]);
-        setLoading(false);
+      setLoading(false);
 
-        return;
-      }
+      return;
+    }
 
-      setJob(jobData as Job);
+    setJob(jobData as Job);
 
-      /*
-       * -------------------------------------------------------
-       * 2. LOAD APPLICATIONS
-       * -------------------------------------------------------
-       *
-       * applications
-       *      ↓
-       * candidate_profiles
-       *      ↓
-       * user_id
-       *
-       * We DO NOT directly join profiles here.
-       *
-       * candidate_profiles.user_id → profiles.id
-       *
-       * So we load the profiles separately below.
-       * -------------------------------------------------------
-       */
+    /*
+     * ---------------------------------------------------------
+     * 2. LOAD APPLICATIONS
+     * ---------------------------------------------------------
+     *
+     * We get:
+     *
+     * applications
+     *      ↓
+     * candidate_profiles
+     *      ↓
+     * user_id
+     *
+     * The actual candidate name lives in:
+     *
+     * profiles.full_name
+     *
+     */
 
-      const {
-        data: apps,
-        error: appsError,
-      } = await supabase
-        .from("applications")
-        .select(`
-          id,
-          status,
-          applied_at,
-          candidate_id,
+    const { data: apps, error: appsError } = await supabase
+      .from("applications")
+      .select(`
+        id,
+        status,
+        applied_at,
+        candidate_id,
 
-          candidate_profiles (
-            user_id,
-            headline,
-            current_title,
-            years_of_experience
-          ),
+        candidate_profiles (
+          user_id,
+          headline,
+          current_title,
+          years_of_experience
+        ),
 
-          role_fit_scores (
-            overall_score,
-            semantic_match,
-            skills_match,
-            experience_match,
-            project_relevance,
-            education_match,
-            role_fit_explanations (
-              strong_matches,
-              missing_skills,
-              weak_areas,
-              experience_gaps,
-              recommendations,
-              feature_importance,
-              summary
-            )
+        role_fit_scores (
+          overall_score,
+          semantic_match,
+          skills_match,
+          experience_match,
+          project_relevance,
+          education_match,
+
+          role_fit_explanations (
+            strong_matches,
+            missing_skills,
+            weak_areas,
+            experience_gaps,
+            recommendations,
+            feature_importance,
+            summary
           )
-        `)
-        .eq("job_id", jobId)
-        .order("applied_at", { ascending: false });
+        )
+      `)
+      .eq("job_id", jobId)
+      .order("applied_at", { ascending: false });
 
-      if (appsError) {
-        console.error(
-          "Failed to load applications:",
-          appsError
-        );
+    if (appsError) {
+      console.error("Failed to load applications:", appsError);
 
-        setApplicants([]);
-        setLoading(false);
+      setApplicants([]);
 
-        return;
-      }
+      setLoading(false);
 
-      /*
-       * -------------------------------------------------------
-       * 3. GET USER IDS FROM CANDIDATE PROFILES
-       * -------------------------------------------------------
-       */
+      return;
+    }
 
-      const candidateUserIds = (apps || [])
-        .map((app: any) => {
-          const candidateProfile =
-            Array.isArray(app.candidate_profiles)
-              ? app.candidate_profiles[0]
-              : app.candidate_profiles;
+    /*
+     * ---------------------------------------------------------
+     * 3. GET USER IDS FROM CANDIDATE PROFILES
+     * ---------------------------------------------------------
+     */
 
-          return candidateProfile?.user_id;
-        })
-        .filter(
-          (id: string | undefined): id is string =>
-            Boolean(id)
-        );
+    const candidateUserIds = (apps || [])
+      .map((app: any) => {
+        const profile = app.candidate_profiles?.[0];
 
-      /*
-       * -------------------------------------------------------
-       * 4. LOAD NAMES FROM profiles
-       * -------------------------------------------------------
-       */
+        return profile?.user_id;
+      })
+      .filter(
+        (id: string | undefined): id is string => Boolean(id)
+      );
 
-      let profiles: {
-        id: string;
-        full_name: string | null;
-      }[] = [];
+    /*
+     * ---------------------------------------------------------
+     * 4. LOAD ACTUAL NAMES FROM PROFILES
+     * ---------------------------------------------------------
+     */
 
-      if (candidateUserIds.length > 0) {
-        const {
-          data: profileData,
-          error: profileError,
-        } = await supabase
+    let profiles: {
+      id: string;
+      full_name: string | null;
+    }[] = [];
+
+    if (candidateUserIds.length > 0) {
+      const { data: profileData, error: profileError } =
+        await supabase
           .from("profiles")
           .select("id, full_name")
           .in("id", candidateUserIds);
 
-        if (profileError) {
-          console.error(
-            "Failed to load candidate profiles:",
-            profileError
-          );
-        } else {
-          profiles = profileData || [];
-        }
-      }
-
-      /*
-       * -------------------------------------------------------
-       * 5. CREATE USER ID → FULL NAME MAP
-       * -------------------------------------------------------
-       */
-
-      const profileMap = new Map<
-        string,
-        string | null
-      >();
-
-      profiles.forEach((profile) => {
-        profileMap.set(
-          profile.id,
-          profile.full_name
+      if (profileError) {
+        console.error(
+          "Failed to load candidate names:",
+          profileError
         );
-      });
-
-      /*
-       * -------------------------------------------------------
-       * 6. ATTACH CANDIDATE NAME
-       * -------------------------------------------------------
-       */
-
-      const applicantsWithNames: ApplicantRow[] = (
-        apps || []
-      ).map((app: any) => {
-        const candidateProfile = Array.isArray(
-          app.candidate_profiles
-        )
-          ? app.candidate_profiles[0]
-          : app.candidate_profiles;
-
-        const userId =
-          candidateProfile?.user_id;
-
-        const candidateName = userId
-          ? profileMap.get(userId) || null
-          : null;
-
-        return {
-          ...app,
-          candidate_name: candidateName,
-        };
-      });
-
-      /*
-       * -------------------------------------------------------
-       * 7. SORT BY AI ROLE-FIT SCORE
-       * -------------------------------------------------------
-       *
-       * Highest score first.
-       *
-       * Applicants without a score appear last.
-       * -------------------------------------------------------
-       */
-
-      const sorted =
-        applicantsWithNames.sort((a, b) => {
-          const scoreA =
-            a.role_fit_scores?.[0]
-              ?.overall_score ?? -1;
-
-          const scoreB =
-            b.role_fit_scores?.[0]
-              ?.overall_score ?? -1;
-
-          return (
-            Number(scoreB) -
-            Number(scoreA)
-          );
-        });
-
-      setApplicants(sorted);
-    } catch (error) {
-      console.error(
-        "Unexpected recruiter job page error:",
-        error
-      );
-
-      setApplicants([]);
-    } finally {
-      setLoading(false);
+      } else {
+        profiles = profileData || [];
+      }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * 5. CREATE QUICK USER-ID → NAME MAP
+     * ---------------------------------------------------------
+     */
+
+    const profileMap = new Map<string, string | null>();
+
+    profiles.forEach((profile) => {
+      profileMap.set(profile.id, profile.full_name);
+    });
+
+    /*
+     * ---------------------------------------------------------
+     * 6. ATTACH CANDIDATE NAME TO EACH APPLICATION
+     * ---------------------------------------------------------
+     */
+
+    const applicantsWithNames: ApplicantRow[] = (
+      apps || []
+    ).map((app: any) => {
+      const candidateProfile =
+        app.candidate_profiles?.[0];
+
+      const userId = candidateProfile?.user_id;
+
+      const candidateName = userId
+        ? profileMap.get(userId) || null
+        : null;
+
+      return {
+        ...app,
+        candidate_name: candidateName,
+      };
+    });
+
+    /*
+     * ---------------------------------------------------------
+     * 7. SORT BY ROLE-FIT SCORE
+     * ---------------------------------------------------------
+     *
+     * Candidates with a calculated score appear first.
+     *
+     * Candidates without a score go after them.
+     */
+
+    const sorted = applicantsWithNames.sort((a, b) => {
+      const scoreA =
+        a.role_fit_scores?.[0]?.overall_score ?? -1;
+
+      const scoreB =
+        b.role_fit_scores?.[0]?.overall_score ?? -1;
+
+      return Number(scoreB) - Number(scoreA);
+    });
+
+    setApplicants(sorted);
+
+    setLoading(false);
   }, [jobId]);
 
   useEffect(() => {
@@ -377,9 +326,9 @@ export default function JobDetailPage() {
   }, [loadData]);
 
   /*
-   * =========================================================
+   * ---------------------------------------------------------
    * UPDATE APPLICATION STATUS
-   * =========================================================
+   * ---------------------------------------------------------
    */
 
   async function updateStatus(
@@ -389,24 +338,21 @@ export default function JobDetailPage() {
     setUpdatingId(applicationId);
 
     try {
-      const res = await fetch(
-        "/api/applications",
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            applicationId,
-            status,
-          }),
-        }
-      );
+      const res = await fetch("/api/applications", {
+        method: "PATCH",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          applicationId,
+          status,
+        }),
+      });
 
       if (!res.ok) {
-        throw new Error(
-          "Failed to update status"
-        );
+        throw new Error("Failed to update status");
       }
 
       setApplicants((prev) =>
@@ -428,8 +374,7 @@ export default function JobDetailPage() {
       console.error(error);
 
       toast({
-        title:
-          "Failed to update status",
+        title: "Failed to update status",
         variant: "destructive",
       });
     } finally {
@@ -438,9 +383,9 @@ export default function JobDetailPage() {
   }
 
   /*
-   * =========================================================
-   * LOADING
-   * =========================================================
+   * ---------------------------------------------------------
+   * LOADING STATE
+   * ---------------------------------------------------------
    */
 
   if (loading) {
@@ -451,23 +396,21 @@ export default function JobDetailPage() {
         <Skeleton className="h-32 w-full rounded-xl" />
 
         <div className="space-y-4">
-          {Array.from({ length: 3 }).map(
-            (_, i) => (
-              <Skeleton
-                key={i}
-                className="h-24 w-full rounded-xl"
-              />
-            )
-          )}
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton
+              key={i}
+              className="h-24 w-full rounded-xl"
+            />
+          ))}
         </div>
       </div>
     );
   }
 
   /*
-   * =========================================================
+   * ---------------------------------------------------------
    * JOB NOT FOUND
-   * =========================================================
+   * ---------------------------------------------------------
    */
 
   if (!job) {
@@ -487,17 +430,17 @@ export default function JobDetailPage() {
   }
 
   /*
-   * =========================================================
+   * ---------------------------------------------------------
    * PAGE
-   * =========================================================
+   * ---------------------------------------------------------
    */
 
   return (
     <div className="space-y-6">
 
-      {/* =====================================================
-          JOB HEADER
-          ===================================================== */}
+      {/* ---------------------------------------------------- */}
+      {/* JOB HEADER */}
+      {/* ---------------------------------------------------- */}
 
       <div>
         <Button
@@ -508,11 +451,13 @@ export default function JobDetailPage() {
         >
           <Link href="/recruiter/jobs">
             <ArrowLeft className="h-4 w-4" />
+
             Back to Jobs
           </Link>
         </Button>
 
         <div className="flex flex-wrap items-center gap-3">
+
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
             {job.title}
           </h1>
@@ -528,6 +473,7 @@ export default function JobDetailPage() {
           >
             {JOB_STATUS_LABELS[job.status]}
           </Badge>
+
         </div>
 
         <p className="text-muted-foreground mt-1">
@@ -535,9 +481,9 @@ export default function JobDetailPage() {
         </p>
       </div>
 
-      {/* =====================================================
-          JOB OVERVIEW
-          ===================================================== */}
+      {/* ---------------------------------------------------- */}
+      {/* JOB OVERVIEW */}
+      {/* ---------------------------------------------------- */}
 
       <Card>
         <CardHeader>
@@ -557,29 +503,25 @@ export default function JobDetailPage() {
             {job.location && (
               <span className="flex items-center gap-1">
                 <MapPin className="h-4 w-4" />
+
                 {job.location}
               </span>
             )}
 
             <span>
-              {
-                EMPLOYMENT_TYPE_LABELS[
-                  job.employment_type
-                ]
-              }
+              {EMPLOYMENT_TYPE_LABELS[job.employment_type]}
             </span>
 
             <span>
-              Experience:{" "}
-              {job.experience_min}
+              Experience: {job.experience_min}
+
               {job.experience_max
                 ? `–${job.experience_max}`
                 : "+"}{" "}
               years
             </span>
 
-            {(job.salary_min ||
-              job.salary_max) && (
+            {(job.salary_min || job.salary_max) && (
               <span>
                 Salary:{" "}
 
@@ -587,8 +529,7 @@ export default function JobDetailPage() {
                   ? `$${job.salary_min.toLocaleString()}`
                   : ""}
 
-                {job.salary_min &&
-                job.salary_max
+                {job.salary_min && job.salary_max
                   ? " – "
                   : ""}
 
@@ -600,34 +541,33 @@ export default function JobDetailPage() {
 
             {job.deadline && (
               <span>
-                Deadline:{" "}
-                {formatDate(job.deadline)}
+                Deadline: {formatDate(job.deadline)}
               </span>
             )}
+
           </div>
 
-          {job.required_skills.length >
-            0 && (
+          {job.required_skills.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {job.required_skills.map(
-                (skill) => (
-                  <Badge
-                    key={skill}
-                    variant="outline"
-                  >
-                    {skill}
-                  </Badge>
-                )
-              )}
+
+              {job.required_skills.map((skill) => (
+                <Badge
+                  key={skill}
+                  variant="outline"
+                >
+                  {skill}
+                </Badge>
+              ))}
+
             </div>
           )}
 
         </CardContent>
       </Card>
 
-      {/* =====================================================
-          APPLICANTS
-          ===================================================== */}
+      {/* ---------------------------------------------------- */}
+      {/* APPLICANTS */}
+      {/* ---------------------------------------------------- */}
 
       <div>
 
@@ -644,14 +584,20 @@ export default function JobDetailPage() {
             className="ml-1"
           >
             <Sparkles className="h-3 w-3 mr-1" />
+
             AI Ranked
           </Badge>
 
         </div>
 
+        {/* -------------------------------------------------- */}
+        {/* NO APPLICANTS */}
+        {/* -------------------------------------------------- */}
+
         {applicants.length === 0 ? (
           <Card>
             <CardContent>
+
               <EmptyState
                 icon={
                   <Users className="h-12 w-12" />
@@ -659,9 +605,15 @@ export default function JobDetailPage() {
                 title="No applicants yet"
                 description="Candidates will appear here once they apply. Role-fit scores are calculated automatically."
               />
+
             </CardContent>
           </Card>
         ) : (
+
+          /* ------------------------------------------------ */
+          /* APPLICANT LIST */
+          /* ------------------------------------------------ */
+
           <div className="space-y-4">
 
             {applicants.map(
@@ -676,17 +628,19 @@ export default function JobDetailPage() {
                   );
 
                 const isExpanded =
-                  expandedId ===
-                  applicant.id;
+                  expandedId === applicant.id;
 
                 return (
                   <Card
                     key={applicant.id}
                     className="overflow-hidden"
                   >
+
                     <CardContent className="p-0">
 
+                      {/* ---------------------------------- */}
                       {/* APPLICANT HEADER */}
+                      {/* ---------------------------------- */}
 
                       <div className="flex flex-col md:flex-row md:items-center gap-4 p-5">
 
@@ -713,16 +667,18 @@ export default function JobDetailPage() {
 
                               {applicant
                                 .candidate_profiles?.[0]
-                                ?.years_of_experience !=
-                                null &&
+                                ?.years_of_experience != null &&
                                 ` · ${applicant.candidate_profiles[0].years_of_experience} yrs exp`}
 
                             </p>
 
                           </div>
+
                         </div>
 
-                        {/* SCORE / STATUS / EXPLAIN */}
+                        {/* -------------------------------- */}
+                        {/* SCORE + STATUS + EXPLAIN */}
+                        {/* -------------------------------- */}
 
                         <div className="flex items-center gap-4">
 
@@ -740,9 +696,7 @@ export default function JobDetailPage() {
                           )}
 
                           <select
-                            value={
-                              applicant.status
-                            }
+                            value={applicant.status}
                             disabled={
                               updatingId ===
                               applicant.id
@@ -756,6 +710,7 @@ export default function JobDetailPage() {
                             }
                             className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
+
                             {STATUS_OPTIONS.map(
                               (status) => (
                                 <option
@@ -770,6 +725,7 @@ export default function JobDetailPage() {
                                 </option>
                               )
                             )}
+
                           </select>
 
                           <Button
@@ -783,6 +739,7 @@ export default function JobDetailPage() {
                               )
                             }
                           >
+
                             {isExpanded ? (
                               <ChevronUp className="h-4 w-4" />
                             ) : (
@@ -790,21 +747,29 @@ export default function JobDetailPage() {
                             )}
 
                             Explain
+
                           </Button>
 
                         </div>
+
                       </div>
 
+                      {/* ---------------------------------- */}
                       {/* EXPLANATION */}
+                      {/* ---------------------------------- */}
 
                       {isExpanded && (
+
                         <div className="border-t bg-gray-50/50 p-5 space-y-5">
 
                           {score ? (
+
                             <>
+
                               {/* SCORE BREAKDOWN */}
 
                               <div>
+
                                 <h4 className="text-sm font-semibold mb-3">
                                   Score Breakdown
                                 </h4>
@@ -814,74 +779,81 @@ export default function JobDetailPage() {
                                     {
                                       label:
                                         "Semantic Match",
-                                      value:
-                                        Number(
-                                          score.semantic_match ??
-                                            0
-                                        ),
+                                      value: Number(
+                                        score.semantic_match ??
+                                          0
+                                      ),
                                     },
+
                                     {
                                       label:
                                         "Skills Match",
-                                      value:
-                                        Number(
-                                          score.skills_match ??
-                                            0
-                                        ),
+                                      value: Number(
+                                        score.skills_match ??
+                                          0
+                                      ),
                                     },
+
                                     {
                                       label:
                                         "Experience Match",
-                                      value:
-                                        Number(
-                                          score.experience_match ??
-                                            0
-                                        ),
+                                      value: Number(
+                                        score.experience_match ??
+                                          0
+                                      ),
                                     },
+
                                     {
                                       label:
                                         "Project Relevance",
-                                      value:
-                                        Number(
-                                          score.project_relevance ??
-                                            0
-                                        ),
+                                      value: Number(
+                                        score.project_relevance ??
+                                          0
+                                      ),
                                     },
+
                                     {
                                       label:
                                         "Education Match",
-                                      value:
-                                        Number(
-                                          score.education_match ??
-                                            0
-                                        ),
+                                      value: Number(
+                                        score.education_match ??
+                                          0
+                                      ),
                                     },
                                   ]}
                                 />
+
                               </div>
 
                               {/* AI EXPLANATION */}
 
                               {explanation && (
+
                                 <div className="grid md:grid-cols-2 gap-4">
 
                                   {/* SUMMARY */}
 
                                   {explanation.summary && (
                                     <Card>
+
                                       <CardHeader className="pb-2">
+
                                         <CardDescription>
                                           AI Summary
                                         </CardDescription>
+
                                       </CardHeader>
 
                                       <CardContent>
+
                                         <p className="text-sm">
                                           {
                                             explanation.summary
                                           }
                                         </p>
+
                                       </CardContent>
+
                                     </Card>
                                   )}
 
@@ -889,38 +861,37 @@ export default function JobDetailPage() {
 
                                   {(
                                     explanation.strong_matches as string[]
-                                  )?.length >
-                                    0 && (
+                                  )?.length > 0 && (
+
                                     <Card>
+
                                       <CardHeader className="pb-2">
+
                                         <CardDescription>
                                           Strong Matches
                                         </CardDescription>
+
                                       </CardHeader>
 
                                       <CardContent>
+
                                         <ul className="text-sm space-y-1">
+
                                           {(
                                             explanation.strong_matches as string[]
-                                          ).map(
-                                            (
-                                              match
-                                            ) => (
-                                              <li
-                                                key={
-                                                  match
-                                                }
-                                                className="text-emerald-700"
-                                              >
-                                                ✓{" "}
-                                                {
-                                                  match
-                                                }
-                                              </li>
-                                            )
-                                          )}
+                                          ).map((match) => (
+                                            <li
+                                              key={match}
+                                              className="text-emerald-700"
+                                            >
+                                              ✓ {match}
+                                            </li>
+                                          ))}
+
                                         </ul>
+
                                       </CardContent>
+
                                     </Card>
                                   )}
 
@@ -928,38 +899,37 @@ export default function JobDetailPage() {
 
                                   {(
                                     explanation.missing_skills as string[]
-                                  )?.length >
-                                    0 && (
+                                  )?.length > 0 && (
+
                                     <Card>
+
                                       <CardHeader className="pb-2">
+
                                         <CardDescription>
                                           Missing Skills
                                         </CardDescription>
+
                                       </CardHeader>
 
                                       <CardContent>
+
                                         <ul className="text-sm space-y-1">
+
                                           {(
                                             explanation.missing_skills as string[]
-                                          ).map(
-                                            (
-                                              skill
-                                            ) => (
-                                              <li
-                                                key={
-                                                  skill
-                                                }
-                                                className="text-red-600"
-                                              >
-                                                ✗{" "}
-                                                {
-                                                  skill
-                                                }
-                                              </li>
-                                            )
-                                          )}
+                                          ).map((skill) => (
+                                            <li
+                                              key={skill}
+                                              className="text-red-600"
+                                            >
+                                              ✗ {skill}
+                                            </li>
+                                          ))}
+
                                         </ul>
+
                                       </CardContent>
+
                                     </Card>
                                   )}
 
@@ -967,23 +937,26 @@ export default function JobDetailPage() {
 
                                   {(
                                     explanation.recommendations as string[]
-                                  )?.length >
-                                    0 && (
+                                  )?.length > 0 && (
+
                                     <Card>
+
                                       <CardHeader className="pb-2">
+
                                         <CardDescription>
                                           Recommendations
                                         </CardDescription>
+
                                       </CardHeader>
 
                                       <CardContent>
+
                                         <ul className="text-sm space-y-1">
+
                                           {(
                                             explanation.recommendations as string[]
                                           ).map(
-                                            (
-                                              recommendation
-                                            ) => (
+                                            (recommendation) => (
                                               <li
                                                 key={
                                                   recommendation
@@ -996,24 +969,32 @@ export default function JobDetailPage() {
                                               </li>
                                             )
                                           )}
+
                                         </ul>
+
                                       </CardContent>
+
                                     </Card>
                                   )}
 
                                 </div>
                               )}
+
                             </>
+
                           ) : (
+
                             <p className="text-sm text-muted-foreground text-center py-4">
                               Role-fit score not yet calculated for this applicant.
                             </p>
+
                           )}
 
                         </div>
                       )}
 
                     </CardContent>
+
                   </Card>
                 );
               }
